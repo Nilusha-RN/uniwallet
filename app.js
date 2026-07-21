@@ -1,6 +1,7 @@
-import { auth } from "./firebase-config.js";
+import { auth, db } from "./firebase-config.js";
 import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
@@ -34,7 +35,7 @@ if (isLoginPage) {
   });
 
 } else {
-  onAuthStateChanged(auth, user => {
+  onAuthStateChanged(auth, async user => {
     if (!user) {
       window.location.href = "index.html";
       return;
@@ -48,6 +49,18 @@ if (isLoginPage) {
     if (ua) ua.src = avatar;
     if (un) un.textContent = name;
     if (ta) ta.src = avatar;
+
+    // Save user data to Firestore for admin tracking
+    try {
+      await setDoc(doc(db, "users", user.uid), {
+        displayName: user.displayName || "",
+        email: user.email || "",
+        photoURL: user.photoURL || "",
+        lastLogin: new Date().toISOString(),
+      }, { merge: true });
+    } catch (err) {
+      console.error("User data save error:", err);
+    }
 
     window.dispatchEvent(new CustomEvent("userReady", { detail: { user } }));
   });
