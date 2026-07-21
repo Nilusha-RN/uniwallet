@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniWallets</title>
+  <link rel="icon" type="image/png" href="logo.png.png" />
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+<body class="login-page">
+
+  <div class="login-bg">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="login-container">
+    <div class="login-card glass">
+
+      <div class="login-header">
+        <div class="logo-icon">
+          <img src="logo.png.png" alt="UniWallet Logo" style="width:48px;height:48px;object-fit:contain;border-radius:8px;" />
+        </div>
+        <h1>UniWallet</h1>
+        <p>Smart expense tracking for university students</p>
+      </div>
+
+      <div class="login-features">
+        <div class="feature-item">
+          <i class="fas fa-chart-pie"></i>
+          <span>Track every rupee</span>
+        </div>
+        <div class="feature-item">
+          <i class="fas fa-calendar-week"></i>
+          <span>Weekly analysis</span>
+        </div>
+        <div class="feature-item">
+          <i class="fas fa-piggy-bank"></i>
+          <span>Savings insights</span>
+        </div>
+      </div>
+
+      <button id="googleSignInBtn" class="google-btn">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
+        <span>Continue with Google</span>
+      </button>
+
+      <p class="login-note">Your data is private and secure. Only you can see your expenses.</p>
+
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>

@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniWallet</title>
+  <link rel="icon" type="image/png" href="logo.png.png" />
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="dashboard-page">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-icon small"><img src="logo.png.png" alt="logo" style="width:22px;height:22px;object-fit:contain;border-radius:4px;" /></div>
+      <span class="logo-text">UniWallet</span>
+      <button class="sidebar-close" id="sidebarClose"><i class="fas fa-times"></i></button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-section="overview">
+        <i class="fas fa-home"></i><span>Overview</span>
+      </a>
+      <a href="#" class="nav-item" data-section="transactions">
+        <i class="fas fa-list"></i><span>Transactions</span>
+      </a>
+      <a href="#" class="nav-item" data-section="analytics">
+        <i class="fas fa-chart-bar"></i><span>Analytics</span>
+      </a>
+      <a href="#" class="nav-item" data-section="budget">
+        <i class="fas fa-sliders-h"></i><span>Budget</span>
+      </a>
+      <a href="#" class="nav-item" data-section="loans">
+        <i class="fas fa-handshake"></i><span>Loans</span>
+      </a>
+      <a href="#" class="nav-item" data-section="about">
+        <i class="fas fa-info-circle"></i><span>About Us</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-user" id="sidebarUser">
+      <img id="userAvatar" src="" alt="avatar" />
+      <div>
+        <p id="userName" class="user-name"></p>
+        <p class="user-role">Student</p>
+      </div>
+      <button id="signOutBtn" title="Sign out"><i class="fas fa-sign-out-alt"></i></button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main-wrapper">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <button class="hamburger" id="hamburger"><i class="fas fa-bars"></i></button>
+      <div class="topbar-title" id="sectionTitle">Overview</div>
+      <div class="topbar-right">
+        <span class="today-date" id="todayDate"></span>
+        <img id="topbarAvatar" src="" alt="avatar" class="topbar-avatar" />
+      </div>
+    </header>
+
+    <!-- SECTION: Overview -->
+    <section class="content-section active" id="section-overview">
+
+      <!-- Balance card -->
+      <div class="balance-hero glass">
+        <div class="balance-left">
+          <p class="balance-label">Current Balance</p>
+          <h2 class="balance-amount" id="balanceDisplay">LKR 0.00</h2>
+          <p class="balance-sub" id="balanceSub">Set your balance to get started</p>
+        </div>
+        <div class="balance-right">
+          <button class="btn btn-primary" id="updateBalanceBtn">
+            <i class="fas fa-pen"></i> Update Balance
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick stats -->
+      <div class="stats-grid">
+        <div class="stat-card glass">
+          <div class="stat-icon income"><i class="fas fa-arrow-down"></i></div>
+          <div>
+            <p class="stat-label">This Month Income</p>
+            <p class="stat-value" id="monthIncome">LKR 0</p>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon expense"><i class="fas fa-arrow-up"></i></div>
+          <div>
+            <p class="stat-label">This Month Expenses</p>
+            <p class="stat-value" id="monthExpense">LKR 0</p>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon saving"><i class="fas fa-piggy-bank"></i></div>
+          <div>
+            <p class="stat-label">This Month Savings</p>
+            <p class="stat-value" id="monthSaving">LKR 0</p>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon today-exp"><i class="fas fa-calendar-day"></i></div>
+          <div>
+            <p class="stat-label">Today's Expenses</p>
+            <p class="stat-value" id="todayExpense">LKR 0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category breakdown + Add transaction -->
+      <div class="two-col">
+
+        <div class="card glass">
+          <div class="card-header">
+            <h3>Category Breakdown</h3>
+            <span class="badge">This Month</span>
+          </div>
+          <div class="category-list" id="categoryList"></div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-header">
+            <h3>Add Transaction</h3>
+          </div>
+          <form id="addTransactionForm" class="form">
+            <div class="form-tabs">
+              <button type="button" class="tab-btn active" data-type="expense">Expense</button>
+              <button type="button" class="tab-btn" data-type="income">Income</button>
+            </div>
+            <div class="form-group">
+              <label>Amount (LKR)</label>
+              <input type="number" id="txAmount" placeholder="0.00" min="0" step="0.01" required />
+            </div>
+            <div class="form-group">
+              <label>Category</label>
+              <select id="txCategory">
+                <option value="food">Food & Drinks</option>
+                <option value="transport">Transport</option>
+                <option value="medicine">Medicine & Health</option>
+                <option value="accommodation">Accommodation (Bodim)</option>
+                <option value="events">Events & Entertainment</option>
+                <option value="travel">Travel</option>
+                <option value="education">Education & Books</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Note (optional)</label>
+              <input type="text" id="txNote" placeholder="e.g. Lunch at canteen" />
+            </div>
+            <div class="form-group">
+              <label>Date</label>
+              <input type="date" id="txDate" required />
+            </div>
+            <button type="submit" class="btn btn-primary full-width">
+              <i class="fas fa-plus"></i> Add Transaction
+            </button>
+          </form>
+        </div>
+
+      </div>
+
+      <!-- Recent transactions -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3>Recent Transactions</h3>
+          <a href="#" class="view-all" data-section="transactions">View all</a>
+        </div>
+        <div class="transaction-list" id="recentList"></div>
+      </div>
+
+    </section>
+
+    <!-- SECTION: Transactions -->
+    <section class="content-section" id="section-transactions">
+      <div class="card glass">
+        <div class="card-header">
+          <h3>All Transactions</h3>
+          <div class="filter-row">
+            <select id="filterCategory">
+              <option value="all">All Categories</option>
+              <option value="food">Food</option>
+              <option value="transport">Transport</option>
+              <option value="medicine">Medicine</option>
+              <option value="accommodation">Accommodation</option>
+              <option value="events">Events</option>
+              <option value="travel">Travel</option>
+              <option value="education">Education</option>
+              <option value="other">Other</option>
+            </select>
+            <select id="filterType">
+              <option value="all">All Types</option>
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+            </select>
+            <input type="month" id="filterMonth" />
+            <button class="btn btn-export" id="exportBtn">
+              <i class="fas fa-file-excel"></i> Export Excel
+            </button>
+          </div>
+        </div>
+        <div class="transaction-list" id="allTransactionsList"></div>
+      </div>
+    </section>
+
+    <!-- SECTION: Analytics -->
+    <section class="content-section" id="section-analytics">
+
+      <div class="analytics-grid">
+        <div class="card glass">
+          <div class="card-header">
+            <h3>Weekly Expenses vs Savings</h3>
+            <select id="weeklyChartMonth">
+              <option value="">This Month</option>
+            </select>
+          </div>
+          <canvas id="weeklyChart" height="200"></canvas>
+        </div>
+
+        <div class="card glass">
+          <div class="card-header">
+            <h3>Spending by Category</h3>
+          </div>
+          <canvas id="categoryChart" height="200"></canvas>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="card-header">
+          <h3>Weekly Summary</h3>
+        </div>
+        <div class="weekly-summary" id="weeklySummary"></div>
+      </div>
+
+    </section>
+
+    <!-- SECTION: Budget -->
+    <section class="content-section" id="section-budget">
+      <div class="card glass">
+        <div class="card-header">
+          <h3>Monthly Budget Limits</h3>
+          <p class="card-sub">Set spending limits for each category</p>
+        </div>
+        <div class="budget-list" id="budgetList"></div>
+        <button class="btn btn-primary" id="saveBudgetBtn" style="margin-top:1.5rem">
+          <i class="fas fa-save"></i> Save Budget
+        </button>
+      </div>
+
+      <div class="card glass">
+        <div class="card-header">
+          <h3>Budget vs Actual (This Month)</h3>
+        </div>
+        <canvas id="budgetChart" height="200"></canvas>
+      </div>
+    </section>
+
+    <!-- SECTION: Loans -->
+    <section class="content-section" id="section-loans">
+
+      <!-- Loan summary stats -->
+      <div class="stats-grid">
+        <div class="stat-card glass">
+          <div class="stat-icon loan-lent"><i class="fas fa-hand-holding-dollar"></i></div>
+          <div>
+            <p class="stat-label">Total Lent</p>
+            <p class="stat-value" id="loanTotalLent">LKR 0</p>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon loan-pending"><i class="fas fa-clock"></i></div>
+          <div>
+            <p class="stat-label">Pending Return</p>
+            <p class="stat-value" id="loanTotalPending">LKR 0</p>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon loan-returned"><i class="fas fa-check-circle"></i></div>
+          <div>
+            <p class="stat-label">Total Returned</p>
+            <p class="stat-value" id="loanTotalReturned">LKR 0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pending Loans -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-clock" style="color:var(--yellow);margin-right:0.5rem"></i>Pending Loans</h3>
+          <button class="btn btn-primary" id="addLoanBtn">
+            <i class="fas fa-plus"></i> Add Loan
+          </button>
+        </div>
+        <div class="loan-list" id="pendingLoansList"></div>
+      </div>
+
+      <!-- Settled Loans -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-check-circle" style="color:var(--green);margin-right:0.5rem"></i>Settled Loans</h3>
+          <span class="badge" id="settledCount">0 settled</span>
+        </div>
+        <div class="loan-list" id="settledLoansList"></div>
+      </div>
+
+    </section>
+
+    <!-- SECTION: About Us -->
+    <section class="content-section" id="section-about">
+
+      <!-- Hero -->
+      <div class="about-hero card glass">
+        <div class="about-logo">
+          <img src="logo.png.png" alt="UniWallet Logo" />
+        </div>
+        <h2>UniWallet</h2>
+        <p class="about-tagline">v1.0 &bull; Smart expense tracking for university students</p>
+        <p class="about-version"> </p>
+      </div>
+
+      <!-- About the app -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-info-circle"></i> About UniWallet</h3>
+        </div>
+        <div class="about-body">
+          <p>UniWallet is a free, student-first expense management app built to help undergraduates at Sabaragamuwa University of Sri Lanka track daily spending, set budgets, and understand their financial habits.All stored privately in the cloud.</p>
+          <p>This project was developed as part of an academic initiative to solve the real challenge faced by university students managing limited monthly allowances.</p>
+        </div>
+      </div>
+
+      <!-- How the app works -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-cogs"></i> How It Works</h3>
+        </div>
+        <div class="about-steps">
+          <div class="about-step">
+            <div class="step-num">1</div>
+            <div>
+              <strong>Sign in with Google</strong>
+              <p>Your data is tied to your Google account — private and secure, only you can see it.</p>
+            </div>
+          </div>
+          <div class="about-step">
+            <div class="step-num">2</div>
+            <div>
+              <strong>Set Your Balance</strong>
+              <p>Enter your current wallet or account balance on the Overview page to get an accurate picture.</p>
+            </div>
+          </div>
+          <div class="about-step">
+            <div class="step-num">3</div>
+            <div>
+              <strong>Log Transactions</strong>
+              <p>Add income or expenses with a category, note, and date. All entries are saved instantly to the cloud.</p>
+            </div>
+          </div>
+          <div class="about-step">
+            <div class="step-num">4</div>
+            <div>
+              <strong>Analyse &amp; Budget</strong>
+              <p>View weekly charts, category breakdowns, and set monthly budget limits with live progress tracking.</p>
+            </div>
+          </div>
+          <div class="about-step">
+            <div class="step-num">5</div>
+            <div>
+              <strong>Export to Excel</strong>
+              <p>Download a detailed Excel report of any month — transactions, weekly breakdown, and category summary.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Install as mobile app -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-mobile-alt"></i> Install as a Mobile App</h3>
+          <span class="badge">Free &bull; No App Store needed</span>
+        </div>
+        <div class="about-body">
+          <p>UniWallet works as a Progressive Web App (PWA). You can add it to your phone's home screen and use it like a native app-no downloads required.</p>
+        </div>
+        <div class="install-steps">
+          <div class="install-platform">
+            <div class="install-platform-title"><i class="fab fa-android"></i> Android (Chrome)</div>
+            <ol>
+              <li>Open UniWallet in <strong>Chrome</strong></li>
+              <li>Tap the <strong>⋮ menu</strong> (three dots, top-right)</li>
+              <li>Tap <strong>"Add to Home screen"</strong></li>
+              <li>Tap <strong>"Add"</strong> — done!</li>
+            </ol>
+          </div>
+          <div class="install-platform">
+            <div class="install-platform-title"><i class="fab fa-apple"></i> iPhone / iPad (Safari)</div>
+            <ol>
+              <li>Open UniWallet in <strong>Safari</strong></li>
+              <li>Tap the <strong>Share</strong> button <i class="fas fa-share-square"></i></li>
+              <li>Scroll down and tap <strong>"Add to Home Screen"</strong></li>
+              <li>Tap <strong>"Add"</strong> — done!</li>
+            </ol>
+          </div>
+        </div>
+        <div class="install-tip">
+          <i class="fas fa-lightbulb"></i>
+          Once installed, UniWallet opens full-screen just like a native app, with no browser bar.
+        </div>
+      </div>
+
+      <!-- Change display name -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-user-edit"></i> Your Profile</h3>
+        </div>
+        <div class="about-profile-row">
+          <div class="about-profile-info">
+            <img id="aboutAvatar" src="" alt="avatar" class="about-avatar" />
+            <div>
+              <p id="aboutDisplayName" class="about-display-name"></p>
+              <p id="aboutEmail" class="about-email"></p>
+            </div>
+          </div>
+          <button class="btn btn-outline" id="changeNameBtn"><i class="fas fa-pen"></i> Change Name</button>
+        </div>
+      </div>
+
+      <!-- Feedback / Contact -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-comment-dots"></i> Send Feedback</h3>
+        </div>
+        <div class="about-body">
+          <p>Have a suggestion, found a bug, or just want to say hi? Drop a message below.</p>
+        </div>
+        <form id="feedbackForm" class="feedback-form">
+          <input type="checkbox" name="botcheck" style="display:none" tabindex="-1" autocomplete="off" />
+          <div class="form-group">
+            <label>Your Name</label>
+            <input type="text" id="feedbackName" placeholder="Your name" required />
+          </div>
+          <div class="form-group">
+            <label>Message</label>
+            <textarea id="feedbackMessage" placeholder="Type your feedback here..." rows="4" required></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" id="feedbackSubmitBtn" style="width:100%">
+            <i class="fas fa-paper-plane"></i> Send Feedback
+          </button>
+        </form>
+      </div>
+
+      <!-- Developer -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-graduation-cap"></i> Developer</h3>
+        </div>
+        <div class="about-dev-card">
+          <div class="about-dev-info">
+            <h4>Nilusha Rathwaththe</h4>
+            <p class="about-dev-role">Undergraduate &bull; Sabaragamuwa University of Sri Lanka</p>
+            <div class="about-dev-socials">
+              <a href="https://www.linkedin.com/in/nilusha-rathwaththe-215a42307?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app" target="_blank" rel="noopener">
+                <i class="fab fa-linkedin"></i> LinkedIn
+              </a>
+              <a href="https://www.facebook.com/share/18QhkKUKAj/" target="_blank" rel="noopener">
+                <i class="fab fa-facebook"></i> Facebook
+              </a>
+              <a href="https://www.instagram.com/___nilusha__nirmal___?igsh=MWF3MzI3cnl1MWJiZA==" target="_blank" rel="noopener">
+                <i class="fab fa-instagram"></i> Instagram
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Institution -->
+      <!-- <div class="card glass">
+        <div class="card-header">
+          <h3><i class="fas fa-university"></i> Education</h3>
+        </div>
+        <div class="about-body about-uni">
+          <i class="fas fa-university about-uni-icon"></i>
+          <div>
+            <h4>Sabaragamuwa University of Sri Lanka</h4>
+            <p>Belihuloya, Sri Lanka</p>
+            <p>Faculty of Computing &mdash; Department of Information System</p>
+          </div>
+        </div>
+      </div> -->
+
+    </section>
+
+  </div>
+
+  <!-- Update Balance Modal -->
+  <div class="modal-overlay" id="balanceModal">
+    <div class="modal glass">
+      <div class="modal-header">
+        <h3>Update Balance</h3>
+        <button class="modal-close" id="balanceModalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="form-group">
+        <label>Current Balance (LKR)</label>
+        <input type="number" id="newBalance" placeholder="Enter your balance" min="0" step="0.01" />
+      </div>
+      <p class="modal-note">This sets your actual wallet/account balance right now.</p>
+      <button class="btn btn-primary full-width" id="saveBalanceBtn">Save Balance</button>
+    </div>
+  </div>
+
+  <!-- Export Excel Modal -->
+  <div class="modal-overlay" id="exportModal">
+    <div class="modal glass">
+      <div class="modal-header">
+        <h3><i class="fas fa-file-excel" style="color:#4ade80;margin-right:0.5rem"></i>Export to Excel</h3>
+        <button class="modal-close" id="exportModalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="form-group">
+        <label>Select Month</label>
+        <input type="month" id="exportMonth" />
+      </div>
+      <div class="form-group">
+        <label>Include</label>
+        <div class="export-checks">
+          <label class="check-label"><input type="checkbox" id="chkTransactions" checked /> All Transactions</label>
+          <label class="check-label"><input type="checkbox" id="chkSummary" checked /> Monthly Summary</label>
+          <label class="check-label"><input type="checkbox" id="chkWeekly" checked /> Weekly Breakdown</label>
+          <label class="check-label"><input type="checkbox" id="chkCategory" checked /> Category Breakdown</label>
+        </div>
+      </div>
+      <button class="btn btn-excel full-width" id="downloadExcelBtn">
+        <i class="fas fa-download"></i> Download Excel File
+      </button>
+    </div>
+  </div>
+
+  <!-- Delete confirm toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Change Name Modal -->
+  <div class="modal-overlay" id="changeNameModal">
+    <div class="modal glass">
+      <div class="modal-header">
+        <h3><i class="fas fa-user-edit"></i> Change Display Name</h3>
+        <button class="modal-close" id="changeNameModalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="form-group">
+        <label>Display Name</label>
+        <input type="text" id="newDisplayName" placeholder="Enter your name" maxlength="40" />
+      </div>
+      <p class="modal-note">This name is stored locally on this device.</p>
+      <button class="btn btn-primary full-width" id="saveDisplayNameBtn">Save Name</button>
+    </div>
+  </div>
+
+  <!-- Add Loan Modal -->
+  <div class="modal-overlay" id="addLoanModal">
+    <div class="modal glass">
+      <div class="modal-header">
+        <h3><i class="fas fa-handshake" style="color:var(--primary-light);margin-right:0.5rem"></i>Add Loan</h3>
+        <button class="modal-close" id="addLoanModalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <form id="addLoanForm" class="form">
+        <div class="form-group">
+          <label>Friend's Name</label>
+          <input type="text" id="loanFriendName" placeholder="e.g. Kamal" required />
+        </div>
+        <div class="form-group">
+          <label>Amount (LKR)</label>
+          <input type="number" id="loanAmount" placeholder="0.00" min="0" step="0.01" required />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="loanDate" required />
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" id="loanNote" placeholder="e.g. For project materials" />
+        </div>
+        <button type="submit" class="btn btn-primary full-width">
+          <i class="fas fa-plus"></i> Add Loan
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Record Payment Modal -->
+  <div class="modal-overlay" id="recordPaymentModal">
+    <div class="modal glass">
+      <div class="modal-header">
+        <h3><i class="fas fa-money-bill-wave" style="color:var(--green);margin-right:0.5rem"></i>Record Payment</h3>
+        <button class="modal-close" id="recordPaymentModalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="payment-modal-info">
+        <p class="payment-friend-name" id="paymentFriendName"></p>
+        <p class="payment-remaining" id="paymentRemaining"></p>
+      </div>
+      <form id="recordPaymentForm" class="form">
+        <input type="hidden" id="paymentLoanId" />
+        <div class="form-group">
+          <label>Amount Returned (LKR)</label>
+          <input type="number" id="paymentAmount" placeholder="0.00" min="0" step="0.01" required />
+        </div>
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="paymentDate" required />
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" id="paymentNote" placeholder="e.g. Partial return" />
+        </div>
+        <button type="submit" class="btn btn-primary full-width">
+          <i class="fas fa-check"></i> Record Payment
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+  <script type="module" src="dashboard.js"></script>
+  <script defer src="/_vercel/insights/script.js"></script>
+</body>
+</html>
