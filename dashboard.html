@@ -584,6 +584,16 @@
           <label>Note (optional)</label>
           <input type="text" id="loanNote" placeholder="e.g. For project materials" />
         </div>
+        <div class="balance-toggle-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="loanAffectBalance" />
+            <span class="toggle-slider"></span>
+          </label>
+          <div class="toggle-label-content">
+            <span class="toggle-label-text">Deduct from main balance</span>
+            <span class="toggle-label-hint">The loan amount will be subtracted from your current balance</span>
+          </div>
+        </div>
         <button type="submit" class="btn btn-primary full-width">
           <i class="fas fa-plus"></i> Add Loan
         </button>
@@ -615,6 +625,16 @@
         <div class="form-group">
           <label>Note (optional)</label>
           <input type="text" id="paymentNote" placeholder="e.g. Partial return" />
+        </div>
+        <div class="balance-toggle-group">
+          <label class="toggle-switch">
+            <input type="checkbox" id="paymentAffectBalance" />
+            <span class="toggle-slider"></span>
+          </label>
+          <div class="toggle-label-content">
+            <span class="toggle-label-text">Add to main balance</span>
+            <span class="toggle-label-hint">The returned amount will be added back to your current balance</span>
+          </div>
         </div>
         <button type="submit" class="btn btn-primary full-width">
           <i class="fas fa-check"></i> Record Payment

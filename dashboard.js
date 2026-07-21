@@ -847,6 +847,9 @@ function attachLoanHandlers(container) {
       $("paymentDate").value = todayStr();
       $("paymentNote").value = "";
       $("paymentAmount").value = "";
+      // Auto-check the balance toggle if the original loan was deducted from balance
+      const loan = allLoans.find(l => l.id === id);
+      $("paymentAffectBalance").checked = loan?.affectBalance || false;
       $("recordPaymentModal").classList.add("open");
       $("paymentAmount").focus();
     });
@@ -879,10 +882,11 @@ function initAddLoanModal() {
 
   $("addLoanForm").addEventListener("submit", async e => {
     e.preventDefault();
-    const friendName = $("loanFriendName").value.trim();
-    const amount     = parseFloat($("loanAmount").value);
-    const date       = $("loanDate").value;
-    const note       = $("loanNote").value.trim();
+    const friendName     = $("loanFriendName").value.trim();
+    const amount         = parseFloat($("loanAmount").value);
+    const date           = $("loanDate").value;
+    const note           = $("loanNote").value.trim();
+    const affectBalance  = $("loanAffectBalance").checked;
 
     if (!friendName) { showToast("Enter friend's name", "var(--red)"); return; }
     if (!amount || amount <= 0) { showToast("Enter a valid amount", "var(--red)"); return; }
@@ -897,10 +901,25 @@ function initAddLoanModal() {
         note,
         payments: [],
         status: "pending",
+        affectBalance,
         createdAt: new Date().toISOString()
       });
+
+      // Deduct from main balance if toggle is on
+      if (affectBalance) {
+        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+        const balSnap = await getDoc(balRef);
+        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+        await setDoc(balRef, {
+          amount: cur - amount,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
       $("addLoanModal").classList.remove("open");
-      showToast(`Loan to ${friendName} added!`);
+      showToast(affectBalance
+        ? `Loan to ${friendName} added & balance deducted!`
+        : `Loan to ${friendName} added!`);
     } catch (err) {
       console.error("Loan write error:", err);
       showToast("Error: " + err.message, "var(--red)");
@@ -917,10 +936,11 @@ function initRecordPaymentModal() {
 
   $("recordPaymentForm").addEventListener("submit", async e => {
     e.preventDefault();
-    const loanId = $("paymentLoanId").value;
-    const amount = parseFloat($("paymentAmount").value);
-    const date   = $("paymentDate").value;
-    const note   = $("paymentNote").value.trim();
+    const loanId        = $("paymentLoanId").value;
+    const amount        = parseFloat($("paymentAmount").value);
+    const date          = $("paymentDate").value;
+    const note          = $("paymentNote").value.trim();
+    const affectBalance = $("paymentAffectBalance").checked;
 
     if (!amount || amount <= 0) { showToast("Enter a valid amount", "var(--red)"); return; }
     if (!date) { showToast("Pick a date", "var(--red)"); return; }
@@ -934,7 +954,7 @@ function initRecordPaymentModal() {
     }
 
     const newRemaining = Math.max(0, loan.remainingAmount - amount);
-    const newPayments  = [...(loan.payments || []), { amount, date, note }];
+    const newPayments  = [...(loan.payments || []), { amount, date, note, affectBalance }];
     const newStatus    = newRemaining <= 0 ? "settled" : "pending";
 
     try {
@@ -943,11 +963,25 @@ function initRecordPaymentModal() {
         payments: newPayments,
         status: newStatus
       });
+
+      // Add to main balance if toggle is on
+      if (affectBalance) {
+        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+        const balSnap = await getDoc(balRef);
+        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+        await setDoc(balRef, {
+          amount: cur + amount,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
       $("recordPaymentModal").classList.remove("open");
       if (newStatus === "settled") {
         showToast(`${loan.friendName} has fully returned the loan! 🎉`);
       } else {
-        showToast(`Payment of ${fmt(amount)} recorded!`);
+        showToast(affectBalance
+          ? `Payment of ${fmt(amount)} recorded & balance updated!`
+          : `Payment of ${fmt(amount)} recorded!`);
       }
     } catch (err) {
       console.error("Payment write error:", err);
