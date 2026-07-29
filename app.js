@@ -9,9 +9,8 @@ provider.setCustomParameters({ prompt: "select_account" });
 const isLoginPage = document.getElementById("googleSignInBtn") !== null;
 
 if (isLoginPage) {
-  onAuthStateChanged(auth, user => {
-    if (user) window.location.href = "dashboard.html";
-  });
+  // Auth state redirect is handled by the inline module script in index.html
+  // (skips splash for already signed-in users, shows splash for new visitors)
 
   document.getElementById("googleSignInBtn").addEventListener("click", async () => {
     const btn = document.getElementById("googleSignInBtn");
