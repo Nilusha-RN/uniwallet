@@ -570,7 +570,10 @@
       <form id="addLoanForm" class="form">
         <div class="form-group">
           <label>Friend's Name</label>
-          <input type="text" id="loanFriendName" placeholder="e.g. Kamal" required />
+          <div class="loan-friend-input-wrap" id="loanFriendWrap">
+            <input type="text" id="loanFriendName" placeholder="e.g. Kamal" required autocomplete="off" />
+            <div class="loan-friend-suggestions" id="loanFriendSuggestions"></div>
+          </div>
         </div>
         <div class="form-group">
           <label>Amount (LKR)</label>

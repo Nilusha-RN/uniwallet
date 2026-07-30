@@ -744,12 +744,15 @@ function renderLoans() {
   $("loanTotalPending").textContent  = fmt(totalPending);
   $("loanTotalReturned").textContent = fmt(totalReturned);
 
+  // Group pending loans by friend name
+  const groupedPending = groupPendingByFriend(pending);
+
   // Pending list
   const pendingEl = $("pendingLoansList");
-  if (!pending.length) {
+  if (!groupedPending.length) {
     pendingEl.innerHTML = `<div class="empty-state"><i class="fas fa-handshake"></i>No pending loans</div>`;
   } else {
-    pendingEl.innerHTML = pending.map(loanCard).join("");
+    pendingEl.innerHTML = groupedPending.map(groupedLoanCard).join("");
     attachLoanHandlers(pendingEl);
   }
 
@@ -764,21 +767,91 @@ function renderLoans() {
   }
 }
 
-function loanCard(loan) {
-  const pct = loan.totalAmount > 0
-    ? Math.round(((loan.totalAmount - loan.remainingAmount) / loan.totalAmount) * 100)
+// Group pending loans by friend name into combined entries
+function groupPendingByFriend(pendingLoans) {
+  const friendMap = {};
+  pendingLoans.forEach(loan => {
+    const name = loan.friendName;
+    if (!friendMap[name]) {
+      friendMap[name] = {
+        friendName: name,
+        loanIds: [],
+        totalAmount: 0,
+        remainingAmount: 0,
+        payments: [],
+        loanEntries: [],
+        affectBalance: false,
+        latestDate: loan.date,
+      };
+    }
+    const group = friendMap[name];
+    group.loanIds.push(loan.id);
+    group.totalAmount += loan.totalAmount;
+    group.remainingAmount += loan.remainingAmount;
+    group.payments.push(...(loan.payments || []));
+    if (loan.affectBalance) group.affectBalance = true;
+
+    // Collect individual loan entries for history display
+    // Use loanEntries if available (merged loans), otherwise create from the loan itself
+    if (loan.loanEntries && loan.loanEntries.length) {
+      group.loanEntries.push(...loan.loanEntries);
+    } else {
+      group.loanEntries.push({
+        amount: loan.totalAmount,
+        date: loan.date,
+        note: loan.note || "",
+        createdAt: loan.createdAt
+      });
+    }
+
+    // Track the latest date
+    if (loan.date > group.latestDate) group.latestDate = loan.date;
+  });
+
+  // Sort payments by date
+  Object.values(friendMap).forEach(g => {
+    g.payments.sort((a, b) => a.date.localeCompare(b.date));
+    g.loanEntries.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  });
+
+  return Object.values(friendMap);
+}
+
+function groupedLoanCard(group) {
+  const pct = group.totalAmount > 0
+    ? Math.round(((group.totalAmount - group.remainingAmount) / group.totalAmount) * 100)
     : 0;
-  const returned = loan.totalAmount - loan.remainingAmount;
-  const paymentsHtml = (loan.payments && loan.payments.length)
+
+  // Loan entries history (individual loans given to this person)
+  const entriesHtml = (group.loanEntries && group.loanEntries.length > 1)
+    ? `<div class="loan-entries">
+         <p class="loan-entries-title"><i class="fas fa-layer-group"></i> Loan History</p>
+         ${group.loanEntries.map(e => `
+            <div class="loan-entry-item">
+              <span>${e.date}</span>
+              <span class="loan-payment-note">${e.note || ""}</span>
+              <span class="neg">+${fmt(e.amount)}</span>
+            </div>`).join("")}
+       </div>`
+    : "";
+
+  // Payment history
+  const paymentsHtml = (group.payments && group.payments.length)
     ? `<div class="loan-payments">
          <p class="loan-payments-title"><i class="fas fa-history"></i> Payment History</p>
-         ${loan.payments.map(p => `
-           <div class="loan-payment-item">
-             <span>${p.date}</span>
-             <span class="loan-payment-note">${p.note || ""}</span>
-             <span class="pos">+${fmt(p.amount)}</span>
-           </div>`).join("")}
+         ${group.payments.map(p => `
+            <div class="loan-payment-item">
+              <span>${p.date}</span>
+              <span class="loan-payment-note">${p.note || ""}</span>
+              <span class="pos">+${fmt(p.amount)}</span>
+            </div>`).join("")}
        </div>`
+    : "";
+
+  // All loan IDs for delete (comma-separated)
+  const allIds = group.loanIds.join(",");
+  const loanCountLabel = group.loanEntries.length > 1
+    ? `<span class="loan-count-badge">${group.loanEntries.length} loans combined</span>`
     : "";
 
   return `
@@ -786,12 +859,12 @@ function loanCard(loan) {
       <div class="loan-card-top">
         <div class="loan-avatar"><i class="fas fa-user"></i></div>
         <div class="loan-info">
-          <p class="loan-friend">${loan.friendName}</p>
-          <p class="loan-date"><i class="fas fa-calendar"></i> ${loan.date}${loan.note ? ` · ${loan.note}` : ""}</p>
+          <p class="loan-friend">${group.friendName} ${loanCountLabel}</p>
+          <p class="loan-date"><i class="fas fa-calendar"></i> Latest: ${group.latestDate}</p>
         </div>
         <div class="loan-amounts">
-          <p class="loan-remaining">Pending: <strong>${fmt(loan.remainingAmount)}</strong></p>
-          <p class="loan-total-small">of ${fmt(loan.totalAmount)}</p>
+          <p class="loan-remaining">Pending: <strong>${fmt(group.remainingAmount)}</strong></p>
+          <p class="loan-total-small">of ${fmt(group.totalAmount)}</p>
         </div>
       </div>
       <div class="loan-progress">
@@ -800,12 +873,13 @@ function loanCard(loan) {
         </div>
         <span class="loan-pct">${pct}% returned</span>
       </div>
+      ${entriesHtml}
       ${paymentsHtml}
       <div class="loan-actions">
-        <button class="btn btn-loan-pay" data-id="${loan.id}" data-name="${loan.friendName}" data-remaining="${loan.remainingAmount}">
+        <button class="btn btn-loan-pay" data-ids="${allIds}" data-name="${group.friendName}" data-remaining="${group.remainingAmount}">
           <i class="fas fa-money-bill-wave"></i> Record Payment
         </button>
-        <button class="btn btn-loan-delete" data-id="${loan.id}" title="Delete loan">
+        <button class="btn btn-loan-delete" data-ids="${allIds}" title="Delete all loans for ${group.friendName}">
           <i class="fas fa-trash"></i>
         </button>
       </div>
@@ -837,19 +911,23 @@ function settledLoanCard(loan) {
 function attachLoanHandlers(container) {
   container.querySelectorAll(".btn-loan-pay").forEach(btn => {
     btn.addEventListener("click", () => {
-      const id        = btn.dataset.id;
+      const ids       = btn.dataset.ids.split(",");
       const name      = btn.dataset.name;
       const remaining = parseFloat(btn.dataset.remaining);
-      $("paymentLoanId").value        = id;
+      // Store all loan IDs for this grouped friend
+      $("paymentLoanId").value        = ids.join(",");
       $("paymentFriendName").textContent = name;
       $("paymentRemaining").textContent  = `Remaining: ${fmt(remaining)}`;
       $("paymentAmount").max = remaining;
       $("paymentDate").value = todayStr();
       $("paymentNote").value = "";
       $("paymentAmount").value = "";
-      // Auto-check the balance toggle if the original loan was deducted from balance
-      const loan = allLoans.find(l => l.id === id);
-      $("paymentAffectBalance").checked = loan?.affectBalance || false;
+      // Auto-check the balance toggle if any of the loans was deducted from balance
+      const anyAffect = ids.some(id => {
+        const loan = allLoans.find(l => l.id === id);
+        return loan?.affectBalance;
+      });
+      $("paymentAffectBalance").checked = anyAffect;
       $("recordPaymentModal").classList.add("open");
       $("paymentAmount").focus();
     });
@@ -860,29 +938,157 @@ function attachLoanHandlers(container) {
 function attachLoanDeleteHandlers(container) {
   container.querySelectorAll(".btn-loan-delete").forEach(btn => {
     btn.addEventListener("click", async () => {
-      if (!confirm("Delete this loan record?")) return;
-      await deleteDoc(doc(db, "users", currentUser.uid, "loans", btn.dataset.id));
-      showToast("Loan deleted", "var(--red)");
+      // Support both single ID (settled) and multiple IDs (grouped pending)
+      const ids = (btn.dataset.ids || btn.dataset.id || "").split(",").filter(Boolean);
+      if (!ids.length) return;
+      const msg = ids.length > 1 ? "Delete all loan records for this person?" : "Delete this loan record?";
+      if (!confirm(msg)) return;
+      for (const id of ids) {
+        await deleteDoc(doc(db, "users", currentUser.uid, "loans", id));
+      }
+      showToast(ids.length > 1 ? "All loans deleted" : "Loan deleted", "var(--red)");
     });
   });
 }
 
 // ─── Add Loan Modal ─────────────────────────────────────
+function getUniqueFriends() {
+  // Build a map of unique friend names with their loan summary
+  const friendMap = {};
+  allLoans.forEach(loan => {
+    const name = loan.friendName;
+    if (!friendMap[name]) {
+      friendMap[name] = { name, pendingCount: 0, settledCount: 0, totalPending: 0 };
+    }
+    if (loan.status === "pending") {
+      friendMap[name].pendingCount++;
+      friendMap[name].totalPending += loan.remainingAmount;
+    } else {
+      friendMap[name].settledCount++;
+    }
+  });
+  return Object.values(friendMap);
+}
+
+function renderFriendSuggestions(filter = "") {
+  const suggestionsEl = $("loanFriendSuggestions");
+  const friends = getUniqueFriends();
+  const query = filter.toLowerCase().trim();
+
+  // Filter friends by typed text
+  const filtered = query
+    ? friends.filter(f => f.name.toLowerCase().includes(query))
+    : friends;
+
+  if (!filtered.length) {
+    suggestionsEl.classList.remove("show");
+    return;
+  }
+
+  suggestionsEl.innerHTML = filtered.map(f => {
+    const initial = f.name.charAt(0).toUpperCase();
+    const hasPending = f.pendingCount > 0;
+    const badgeText = hasPending
+      ? `${f.pendingCount} pending · ${fmt(f.totalPending)}`
+      : `${f.settledCount} settled`;
+    const badgeClass = hasPending ? "" : "settled";
+
+    return `
+      <div class="friend-suggestion" data-name="${f.name}">
+        <div class="friend-suggest-avatar">${initial}</div>
+        <div class="friend-suggest-info">
+          <span class="friend-suggest-name">${f.name}</span>
+          <span class="friend-suggest-detail">${f.pendingCount + f.settledCount} loan${(f.pendingCount + f.settledCount) > 1 ? "s" : ""}</span>
+        </div>
+        <span class="friend-suggest-badge ${badgeClass}">${badgeText}</span>
+      </div>`;
+  }).join("");
+
+  suggestionsEl.classList.add("show");
+
+  // Attach click handlers to suggestions
+  suggestionsEl.querySelectorAll(".friend-suggestion").forEach(el => {
+    el.addEventListener("click", () => {
+      $("loanFriendName").value = el.dataset.name;
+      suggestionsEl.classList.remove("show");
+      $("loanAmount").focus();
+    });
+  });
+}
+
 function initAddLoanModal() {
+  const friendInput = $("loanFriendName");
+  const suggestionsEl = $("loanFriendSuggestions");
+
   $("addLoanBtn").addEventListener("click", () => {
     $("addLoanForm").reset();
     $("loanDate").value = todayStr();
     $("addLoanModal").classList.add("open");
-    $("loanFriendName").focus();
+    friendInput.focus();
+    // Show all friends when modal opens (if any exist)
+    setTimeout(() => renderFriendSuggestions(""), 50);
   });
-  $("addLoanModalClose").addEventListener("click", () => $("addLoanModal").classList.remove("open"));
+  $("addLoanModalClose").addEventListener("click", () => {
+    $("addLoanModal").classList.remove("open");
+    suggestionsEl.classList.remove("show");
+  });
   $("addLoanModal").addEventListener("click", e => {
-    if (e.target === $("addLoanModal")) $("addLoanModal").classList.remove("open");
+    if (e.target === $("addLoanModal")) {
+      $("addLoanModal").classList.remove("open");
+      suggestionsEl.classList.remove("show");
+    }
+  });
+
+  // Show/filter suggestions on input
+  friendInput.addEventListener("input", () => {
+    renderFriendSuggestions(friendInput.value);
+  });
+
+  // Show suggestions on focus (if there are existing friends)
+  friendInput.addEventListener("focus", () => {
+    renderFriendSuggestions(friendInput.value);
+  });
+
+  // Keyboard navigation for suggestions
+  friendInput.addEventListener("keydown", (e) => {
+    const items = suggestionsEl.querySelectorAll(".friend-suggestion");
+    if (!items.length || !suggestionsEl.classList.contains("show")) return;
+
+    const current = suggestionsEl.querySelector(".friend-suggestion.active");
+    let idx = Array.from(items).indexOf(current);
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (current) current.classList.remove("active");
+      idx = (idx + 1) % items.length;
+      items[idx].classList.add("active");
+      items[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (current) current.classList.remove("active");
+      idx = idx <= 0 ? items.length - 1 : idx - 1;
+      items[idx].classList.add("active");
+      items[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && current) {
+      e.preventDefault();
+      friendInput.value = current.dataset.name;
+      suggestionsEl.classList.remove("show");
+      $("loanAmount").focus();
+    } else if (e.key === "Escape") {
+      suggestionsEl.classList.remove("show");
+    }
+  });
+
+  // Hide suggestions when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!$("loanFriendWrap")?.contains(e.target)) {
+      suggestionsEl.classList.remove("show");
+    }
   });
 
   $("addLoanForm").addEventListener("submit", async e => {
     e.preventDefault();
-    const friendName     = $("loanFriendName").value.trim();
+    const friendName     = friendInput.value.trim();
     const amount         = parseFloat($("loanAmount").value);
     const date           = $("loanDate").value;
     const note           = $("loanNote").value.trim();
@@ -893,33 +1099,84 @@ function initAddLoanModal() {
     if (!date) { showToast("Pick a date", "var(--red)"); return; }
 
     try {
-      await addDoc(collection(db, "users", currentUser.uid, "loans"), {
-        friendName,
-        totalAmount: amount,
-        remainingAmount: amount,
-        date,
-        note,
-        payments: [],
-        status: "pending",
-        affectBalance,
-        createdAt: new Date().toISOString()
-      });
+      // Check if this friend already has a pending loan — merge if so
+      const existingLoan = allLoans.find(
+        l => l.friendName.toLowerCase() === friendName.toLowerCase() && l.status === "pending"
+      );
 
-      // Deduct from main balance if toggle is on
-      if (affectBalance) {
-        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-        const balSnap = await getDoc(balRef);
-        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-        await setDoc(balRef, {
-          amount: cur - amount,
-          updatedAt: new Date().toISOString()
+      if (existingLoan) {
+        // Merge into existing pending loan
+        const newTotal     = existingLoan.totalAmount + amount;
+        const newRemaining = existingLoan.remainingAmount + amount;
+        const existingEntries = existingLoan.loanEntries || [{
+          amount: existingLoan.totalAmount,
+          date: existingLoan.date,
+          note: existingLoan.note || "",
+          createdAt: existingLoan.createdAt
+        }];
+        const newEntries = [...existingEntries, {
+          amount,
+          date,
+          note,
+          createdAt: new Date().toISOString()
+        }];
+
+        await updateDoc(doc(db, "users", currentUser.uid, "loans", existingLoan.id), {
+          totalAmount: newTotal,
+          remainingAmount: newRemaining,
+          loanEntries: newEntries,
+          affectBalance: existingLoan.affectBalance || affectBalance,
         });
-      }
 
-      $("addLoanModal").classList.remove("open");
-      showToast(affectBalance
-        ? `Loan to ${friendName} added & balance deducted!`
-        : `Loan to ${friendName} added!`);
+        // Deduct from balance if toggle is on
+        if (affectBalance) {
+          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+          const balSnap = await getDoc(balRef);
+          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+          await setDoc(balRef, {
+            amount: cur - amount,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        $("addLoanModal").classList.remove("open");
+        suggestionsEl.classList.remove("show");
+        showToast(affectBalance
+          ? `${fmt(amount)} added to ${friendName}'s loan & balance deducted!`
+          : `${fmt(amount)} added to ${friendName}'s existing loan!`);
+
+      } else {
+        // Create new loan document
+        await addDoc(collection(db, "users", currentUser.uid, "loans"), {
+          friendName,
+          totalAmount: amount,
+          remainingAmount: amount,
+          date,
+          note,
+          payments: [],
+          loanEntries: [{ amount, date, note, createdAt: new Date().toISOString() }],
+          status: "pending",
+          affectBalance,
+          createdAt: new Date().toISOString()
+        });
+
+        // Deduct from main balance if toggle is on
+        if (affectBalance) {
+          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+          const balSnap = await getDoc(balRef);
+          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+          await setDoc(balRef, {
+            amount: cur - amount,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        $("addLoanModal").classList.remove("open");
+        suggestionsEl.classList.remove("show");
+        showToast(affectBalance
+          ? `Loan to ${friendName} added & balance deducted!`
+          : `Loan to ${friendName} added!`);
+      }
     } catch (err) {
       console.error("Loan write error:", err);
       showToast("Error: " + err.message, "var(--red)");
@@ -936,7 +1193,8 @@ function initRecordPaymentModal() {
 
   $("recordPaymentForm").addEventListener("submit", async e => {
     e.preventDefault();
-    const loanId        = $("paymentLoanId").value;
+    const loanIdsStr    = $("paymentLoanId").value;
+    const loanIds       = loanIdsStr.split(",").filter(Boolean);
     const amount        = parseFloat($("paymentAmount").value);
     const date          = $("paymentDate").value;
     const note          = $("paymentNote").value.trim();
@@ -945,24 +1203,38 @@ function initRecordPaymentModal() {
     if (!amount || amount <= 0) { showToast("Enter a valid amount", "var(--red)"); return; }
     if (!date) { showToast("Pick a date", "var(--red)"); return; }
 
-    const loan = allLoans.find(l => l.id === loanId);
-    if (!loan) { showToast("Loan not found", "var(--red)"); return; }
+    // Calculate total remaining across all loan documents for this friend
+    const friendLoans = loanIds.map(id => allLoans.find(l => l.id === id)).filter(Boolean);
+    const totalRemaining = friendLoans.reduce((s, l) => s + l.remainingAmount, 0);
+    const friendName = friendLoans[0]?.friendName || "";
 
-    if (amount > loan.remainingAmount) {
-      showToast(`Amount exceeds remaining (${fmt(loan.remainingAmount)})`, "var(--red)");
+    if (amount > totalRemaining) {
+      showToast(`Amount exceeds remaining (${fmt(totalRemaining)})`, "var(--red)");
       return;
     }
 
-    const newRemaining = Math.max(0, loan.remainingAmount - amount);
-    const newPayments  = [...(loan.payments || []), { amount, date, note, affectBalance }];
-    const newStatus    = newRemaining <= 0 ? "settled" : "pending";
-
     try {
-      await updateDoc(doc(db, "users", currentUser.uid, "loans", loanId), {
-        remainingAmount: newRemaining,
-        payments: newPayments,
-        status: newStatus
-      });
+      // Apply payment across loans (oldest first by createdAt)
+      let remaining = amount;
+      const sortedLoans = [...friendLoans]
+        .filter(l => l.remainingAmount > 0)
+        .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+      for (const loan of sortedLoans) {
+        if (remaining <= 0) break;
+        const applyAmount = Math.min(remaining, loan.remainingAmount);
+        const newRemaining = Math.max(0, loan.remainingAmount - applyAmount);
+        const newPayments  = [...(loan.payments || []), { amount: applyAmount, date, note, affectBalance }];
+        const newStatus    = newRemaining <= 0 ? "settled" : "pending";
+
+        await updateDoc(doc(db, "users", currentUser.uid, "loans", loan.id), {
+          remainingAmount: newRemaining,
+          payments: newPayments,
+          status: newStatus
+        });
+
+        remaining -= applyAmount;
+      }
 
       // Add to main balance if toggle is on
       if (affectBalance) {
@@ -976,8 +1248,10 @@ function initRecordPaymentModal() {
       }
 
       $("recordPaymentModal").classList.remove("open");
-      if (newStatus === "settled") {
-        showToast(`${loan.friendName} has fully returned the loan! 🎉`);
+      // Check if ALL loans for this friend are now settled
+      const allSettled = (amount >= totalRemaining);
+      if (allSettled) {
+        showToast(`${friendName} has fully returned the loan! 🎉`);
       } else {
         showToast(affectBalance
           ? `Payment of ${fmt(amount)} recorded & balance updated!`
