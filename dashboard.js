@@ -10,6 +10,7 @@ let currentUser    = null;
 let allTransactions = [];
 let budgets        = {};
 let allLoans        = [];
+let allBorrowings   = [];
 let weeklyChart = null, categoryChart = null, budgetChart = null;
 
 // ─── Category config ────────────────────────────────────
@@ -50,12 +51,13 @@ function initNav() {
     sections.forEach(s => s.classList.toggle("active", s.id === `section-${name}`));
     navItems.forEach(a => a.classList.toggle("active", a.dataset.section === name));
     const labels = { overview: "Overview", transactions: "Transactions", analytics: "Analytics", budget: "Budget", loans: "Loans", about: "About Us" };
+    if (name === "loans") { renderLoans(); renderBorrowedLoans(); }
     titleEl.textContent = labels[name] || name;
     sidebar.classList.remove("open");
     if (name === "analytics")    renderAnalytics();
     if (name === "budget")       renderBudget();
     if (name === "transactions") renderAllTransactions();
-    if (name === "loans")        renderLoans();
+
   }
 
   navItems.forEach(a => a.addEventListener("click", e => { e.preventDefault(); showSection(a.dataset.section); }));
@@ -667,10 +669,14 @@ window.addEventListener("userReady", ({ detail: { user } }) => {
   initFeedbackForm(user);
   initAddLoanModal();
   initRecordPaymentModal();
+  initLoanTabs();
+  initAddBorrowedModal();
+  initRecordRepaymentModal();
   listenBalance();
   listenBudgets();
   listenTransactions();
   listenLoans();
+  listenBorrowings();
 });
 
 // ─── About Us — profile & name change ───────────────────
@@ -735,14 +741,18 @@ function renderLoans() {
   const pending = allLoans.filter(l => l.status === "pending");
   const settled = allLoans.filter(l => l.status === "settled");
 
-  // Summary stats
+  // Lent summary stats
   const totalLent     = allLoans.reduce((s, l) => s + l.totalAmount, 0);
   const totalPending  = pending.reduce((s, l) => s + l.remainingAmount, 0);
-  const totalReturned = totalLent - totalPending;
 
   $("loanTotalLent").textContent     = fmt(totalLent);
   $("loanTotalPending").textContent  = fmt(totalPending);
-  $("loanTotalReturned").textContent = fmt(totalReturned);
+
+  // Borrowed summary stats
+  const totalBorrowed   = allBorrowings.reduce((s, l) => s + l.totalAmount, 0);
+  const borrowPending   = allBorrowings.filter(l => l.status === "pending").reduce((s, l) => s + l.remainingAmount, 0);
+  $("borrowTotalBorrowed").textContent = fmt(totalBorrowed);
+  $("borrowTotalPending").textContent  = fmt(borrowPending);
 
   // Group pending loans by friend name
   const groupedPending = groupPendingByFriend(pending);
@@ -1259,6 +1269,537 @@ function initRecordPaymentModal() {
       }
     } catch (err) {
       console.error("Payment write error:", err);
+      showToast("Error: " + err.message, "var(--red)");
+    }
+  });
+}
+
+// ─── Loan Tab Switching ─────────────────────────────────
+function initLoanTabs() {
+  const tabs = document.querySelectorAll(".loan-tab-btn");
+  const lentTab = $("loanTabLent");
+  const borrowedTab = $("loanTabBorrowed");
+
+  tabs.forEach(btn => btn.addEventListener("click", () => {
+    tabs.forEach(t => t.classList.remove("active"));
+    btn.classList.add("active");
+
+    const tab = btn.dataset.loanTab;
+    lentTab.classList.toggle("active", tab === "lent");
+    borrowedTab.classList.toggle("active", tab === "borrowed");
+
+    if (tab === "borrowed") renderBorrowedLoans();
+    if (tab === "lent") renderLoans();
+  }));
+}
+
+// ─── Borrowings Firestore Listener ──────────────────────
+function listenBorrowings() {
+  const ref = query(
+    collection(db, "users", currentUser.uid, "borrowings"),
+    orderBy("createdAt", "desc")
+  );
+  onSnapshot(ref, snap => {
+    allBorrowings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if ($("section-loans").classList.contains("active")) {
+      renderBorrowedLoans();
+      // Also refresh stats in renderLoans
+      renderLoans();
+    }
+  });
+}
+
+// ─── Render Borrowed Loans ──────────────────────────────
+function renderBorrowedLoans() {
+  const pending = allBorrowings.filter(l => l.status === "pending");
+  const settled = allBorrowings.filter(l => l.status === "settled");
+
+  // Group pending by friend
+  const grouped = groupBorrowedByFriend(pending);
+
+  const pendingEl = $("pendingBorrowedList");
+  if (!grouped.length) {
+    pendingEl.innerHTML = `<div class="empty-state"><i class="fas fa-hand-holding-hand"></i>No pending borrowings</div>`;
+  } else {
+    pendingEl.innerHTML = grouped.map(groupedBorrowedCard).join("");
+    attachBorrowedHandlers(pendingEl);
+  }
+
+  const settledEl = $("settledBorrowedList");
+  $("settledBorrowedCount").textContent = `${settled.length} settled`;
+  if (!settled.length) {
+    settledEl.innerHTML = `<div class="empty-state"><i class="fas fa-check-circle"></i>No settled borrowings yet</div>`;
+  } else {
+    settledEl.innerHTML = settled.map(settledBorrowedCard).join("");
+    attachBorrowedDeleteHandlers(settledEl);
+  }
+}
+
+function groupBorrowedByFriend(pendingBorrowings) {
+  const friendMap = {};
+  pendingBorrowings.forEach(loan => {
+    const name = loan.friendName;
+    if (!friendMap[name]) {
+      friendMap[name] = {
+        friendName: name,
+        loanIds: [],
+        totalAmount: 0,
+        remainingAmount: 0,
+        payments: [],
+        loanEntries: [],
+        affectBalance: false,
+        latestDate: loan.date,
+      };
+    }
+    const group = friendMap[name];
+    group.loanIds.push(loan.id);
+    group.totalAmount += loan.totalAmount;
+    group.remainingAmount += loan.remainingAmount;
+    group.payments.push(...(loan.payments || []));
+    if (loan.affectBalance) group.affectBalance = true;
+
+    if (loan.loanEntries && loan.loanEntries.length) {
+      group.loanEntries.push(...loan.loanEntries);
+    } else {
+      group.loanEntries.push({
+        amount: loan.totalAmount,
+        date: loan.date,
+        note: loan.note || "",
+        createdAt: loan.createdAt
+      });
+    }
+
+    if (loan.date > group.latestDate) group.latestDate = loan.date;
+  });
+
+  Object.values(friendMap).forEach(g => {
+    g.payments.sort((a, b) => a.date.localeCompare(b.date));
+    g.loanEntries.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  });
+
+  return Object.values(friendMap);
+}
+
+function groupedBorrowedCard(group) {
+  const pct = group.totalAmount > 0
+    ? Math.round(((group.totalAmount - group.remainingAmount) / group.totalAmount) * 100)
+    : 0;
+
+  const entriesHtml = (group.loanEntries && group.loanEntries.length > 1)
+    ? `<div class="loan-entries">
+         <p class="loan-entries-title"><i class="fas fa-layer-group"></i> Borrow History</p>
+         ${group.loanEntries.map(e => `
+            <div class="loan-entry-item">
+              <span>${e.date}</span>
+              <span class="loan-payment-note">${e.note || ""}</span>
+              <span class="neg">+${fmt(e.amount)}</span>
+            </div>`).join("")}
+       </div>`
+    : "";
+
+  const paymentsHtml = (group.payments && group.payments.length)
+    ? `<div class="loan-payments">
+         <p class="loan-payments-title"><i class="fas fa-history"></i> Repayment History</p>
+         ${group.payments.map(p => `
+            <div class="loan-payment-item">
+              <span>${p.date}</span>
+              <span class="loan-payment-note">${p.note || ""}</span>
+              <span class="pos">-${fmt(p.amount)}</span>
+            </div>`).join("")}
+       </div>`
+    : "";
+
+  const allIds = group.loanIds.join(",");
+  const loanCountLabel = group.loanEntries.length > 1
+    ? `<span class="loan-count-badge">${group.loanEntries.length} borrows combined</span>`
+    : "";
+
+  return `
+    <div class="loan-card borrowed-card">
+      <div class="loan-card-top">
+        <div class="loan-avatar"><i class="fas fa-user"></i></div>
+        <div class="loan-info">
+          <p class="loan-friend">${group.friendName} ${loanCountLabel}</p>
+          <p class="loan-date"><i class="fas fa-calendar"></i> Latest: ${group.latestDate}</p>
+        </div>
+        <div class="loan-amounts">
+          <p class="loan-remaining">I owe: <strong>${fmt(group.remainingAmount)}</strong></p>
+          <p class="loan-total-small">of ${fmt(group.totalAmount)}</p>
+        </div>
+      </div>
+      <div class="loan-progress">
+        <div class="loan-progress-bar">
+          <div class="loan-progress-fill" style="width:${pct}%"></div>
+        </div>
+        <span class="loan-pct">${pct}% paid back</span>
+      </div>
+      ${entriesHtml}
+      ${paymentsHtml}
+      <div class="loan-actions">
+        <button class="btn btn-loan-repay" data-ids="${allIds}" data-name="${group.friendName}" data-remaining="${group.remainingAmount}">
+          <i class="fas fa-money-bill-wave"></i> Pay Back
+        </button>
+        <button class="btn btn-loan-delete" data-ids="${allIds}" data-collection="borrowings" title="Delete all borrowings from ${group.friendName}">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+function settledBorrowedCard(loan) {
+  return `
+    <div class="loan-card settled borrowed-card">
+      <div class="loan-card-top">
+        <div class="loan-avatar settled-avatar"><i class="fas fa-check"></i></div>
+        <div class="loan-info">
+          <p class="loan-friend">${loan.friendName}</p>
+          <p class="loan-date"><i class="fas fa-calendar"></i> ${loan.date}${loan.note ? ` · ${loan.note}` : ""}</p>
+        </div>
+        <div class="loan-amounts">
+          <p class="loan-settled-amount">${fmt(loan.totalAmount)}</p>
+          <p class="loan-settled-label">Fully paid back</p>
+        </div>
+      </div>
+      <div class="loan-actions">
+        <button class="btn btn-loan-delete" data-id="${loan.id}" data-collection="borrowings" title="Delete borrowing">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+    </div>`;
+}
+
+function attachBorrowedHandlers(container) {
+  container.querySelectorAll(".btn-loan-repay").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const ids       = btn.dataset.ids.split(",");
+      const name      = btn.dataset.name;
+      const remaining = parseFloat(btn.dataset.remaining);
+      $("repaymentLoanId").value        = ids.join(",");
+      $("repaymentFriendName").textContent = name;
+      $("repaymentRemaining").textContent  = `Remaining: ${fmt(remaining)}`;
+      $("repaymentAmount").max = remaining;
+      $("repaymentDate").value = todayStr();
+      $("repaymentNote").value = "";
+      $("repaymentAmount").value = "";
+      const anyAffect = ids.some(id => {
+        const loan = allBorrowings.find(l => l.id === id);
+        return loan?.affectBalance;
+      });
+      $("repaymentAffectBalance").checked = anyAffect;
+      $("recordRepaymentModal").classList.add("open");
+      $("repaymentAmount").focus();
+    });
+  });
+  attachBorrowedDeleteHandlers(container);
+}
+
+function attachBorrowedDeleteHandlers(container) {
+  container.querySelectorAll(".btn-loan-delete[data-collection='borrowings']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const ids = (btn.dataset.ids || btn.dataset.id || "").split(",").filter(Boolean);
+      if (!ids.length) return;
+      const msg = ids.length > 1 ? "Delete all borrowing records for this person?" : "Delete this borrowing record?";
+      if (!confirm(msg)) return;
+      for (const id of ids) {
+        await deleteDoc(doc(db, "users", currentUser.uid, "borrowings", id));
+      }
+      showToast(ids.length > 1 ? "All borrowings deleted" : "Borrowing deleted", "var(--red)");
+    });
+  });
+}
+
+// ─── Add Borrowed Modal ─────────────────────────────────
+function getUniqueBorrowedFriends() {
+  const friendMap = {};
+  allBorrowings.forEach(loan => {
+    const name = loan.friendName;
+    if (!friendMap[name]) {
+      friendMap[name] = { name, pendingCount: 0, settledCount: 0, totalPending: 0 };
+    }
+    if (loan.status === "pending") {
+      friendMap[name].pendingCount++;
+      friendMap[name].totalPending += loan.remainingAmount;
+    } else {
+      friendMap[name].settledCount++;
+    }
+  });
+  return Object.values(friendMap);
+}
+
+function renderBorrowedFriendSuggestions(filter = "") {
+  const suggestionsEl = $("borrowFriendSuggestions");
+  const friends = getUniqueBorrowedFriends();
+  const q = filter.toLowerCase().trim();
+
+  const filtered = q
+    ? friends.filter(f => f.name.toLowerCase().includes(q))
+    : friends;
+
+  if (!filtered.length) {
+    suggestionsEl.classList.remove("show");
+    return;
+  }
+
+  suggestionsEl.innerHTML = filtered.map(f => {
+    const initial = f.name.charAt(0).toUpperCase();
+    const hasPending = f.pendingCount > 0;
+    const badgeText = hasPending
+      ? `${f.pendingCount} pending · ${fmt(f.totalPending)}`
+      : `${f.settledCount} settled`;
+    const badgeClass = hasPending ? "" : "settled";
+
+    return `
+      <div class="friend-suggestion" data-name="${f.name}">
+        <div class="friend-suggest-avatar">${initial}</div>
+        <div class="friend-suggest-info">
+          <span class="friend-suggest-name">${f.name}</span>
+          <span class="friend-suggest-detail">${f.pendingCount + f.settledCount} borrow${(f.pendingCount + f.settledCount) > 1 ? "s" : ""}</span>
+        </div>
+        <span class="friend-suggest-badge ${badgeClass}">${badgeText}</span>
+      </div>`;
+  }).join("");
+
+  suggestionsEl.classList.add("show");
+
+  suggestionsEl.querySelectorAll(".friend-suggestion").forEach(el => {
+    el.addEventListener("click", () => {
+      $("borrowFriendName").value = el.dataset.name;
+      suggestionsEl.classList.remove("show");
+      $("borrowAmount").focus();
+    });
+  });
+}
+
+function initAddBorrowedModal() {
+  const friendInput = $("borrowFriendName");
+  const suggestionsEl = $("borrowFriendSuggestions");
+
+  $("addBorrowedBtn").addEventListener("click", () => {
+    $("addBorrowedForm").reset();
+    $("borrowDate").value = todayStr();
+    $("addBorrowedModal").classList.add("open");
+    friendInput.focus();
+    setTimeout(() => renderBorrowedFriendSuggestions(""), 50);
+  });
+  $("addBorrowedModalClose").addEventListener("click", () => {
+    $("addBorrowedModal").classList.remove("open");
+    suggestionsEl.classList.remove("show");
+  });
+  $("addBorrowedModal").addEventListener("click", e => {
+    if (e.target === $("addBorrowedModal")) {
+      $("addBorrowedModal").classList.remove("open");
+      suggestionsEl.classList.remove("show");
+    }
+  });
+
+  friendInput.addEventListener("input", () => {
+    renderBorrowedFriendSuggestions(friendInput.value);
+  });
+  friendInput.addEventListener("focus", () => {
+    renderBorrowedFriendSuggestions(friendInput.value);
+  });
+
+  // Keyboard nav
+  friendInput.addEventListener("keydown", (e) => {
+    const items = suggestionsEl.querySelectorAll(".friend-suggestion");
+    if (!items.length || !suggestionsEl.classList.contains("show")) return;
+
+    const current = suggestionsEl.querySelector(".friend-suggestion.active");
+    let idx = Array.from(items).indexOf(current);
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (current) current.classList.remove("active");
+      idx = (idx + 1) % items.length;
+      items[idx].classList.add("active");
+      items[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (current) current.classList.remove("active");
+      idx = idx <= 0 ? items.length - 1 : idx - 1;
+      items[idx].classList.add("active");
+      items[idx].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && current) {
+      e.preventDefault();
+      friendInput.value = current.dataset.name;
+      suggestionsEl.classList.remove("show");
+      $("borrowAmount").focus();
+    } else if (e.key === "Escape") {
+      suggestionsEl.classList.remove("show");
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!$("borrowFriendWrap")?.contains(e.target)) {
+      suggestionsEl.classList.remove("show");
+    }
+  });
+
+  $("addBorrowedForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const friendName     = friendInput.value.trim();
+    const amount         = parseFloat($("borrowAmount").value);
+    const date           = $("borrowDate").value;
+    const note           = $("borrowNote").value.trim();
+    const affectBalance  = $("borrowAffectBalance").checked;
+
+    if (!friendName) { showToast("Enter friend's name", "var(--red)"); return; }
+    if (!amount || amount <= 0) { showToast("Enter a valid amount", "var(--red)"); return; }
+    if (!date) { showToast("Pick a date", "var(--red)"); return; }
+
+    try {
+      // Check if this friend already has a pending borrowing — merge if so
+      const existingBorrow = allBorrowings.find(
+        l => l.friendName.toLowerCase() === friendName.toLowerCase() && l.status === "pending"
+      );
+
+      if (existingBorrow) {
+        const newTotal     = existingBorrow.totalAmount + amount;
+        const newRemaining = existingBorrow.remainingAmount + amount;
+        const existingEntries = existingBorrow.loanEntries || [{
+          amount: existingBorrow.totalAmount,
+          date: existingBorrow.date,
+          note: existingBorrow.note || "",
+          createdAt: existingBorrow.createdAt
+        }];
+        const newEntries = [...existingEntries, {
+          amount,
+          date,
+          note,
+          createdAt: new Date().toISOString()
+        }];
+
+        await updateDoc(doc(db, "users", currentUser.uid, "borrowings", existingBorrow.id), {
+          totalAmount: newTotal,
+          remainingAmount: newRemaining,
+          loanEntries: newEntries,
+          affectBalance: existingBorrow.affectBalance || affectBalance,
+        });
+
+        if (affectBalance) {
+          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+          const balSnap = await getDoc(balRef);
+          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+          await setDoc(balRef, {
+            amount: cur + amount,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        $("addBorrowedModal").classList.remove("open");
+        suggestionsEl.classList.remove("show");
+        showToast(affectBalance
+          ? `${fmt(amount)} added to ${friendName}'s borrowing & balance updated!`
+          : `${fmt(amount)} added to ${friendName}'s existing borrowing!`);
+
+      } else {
+        await addDoc(collection(db, "users", currentUser.uid, "borrowings"), {
+          friendName,
+          totalAmount: amount,
+          remainingAmount: amount,
+          date,
+          note,
+          payments: [],
+          loanEntries: [{ amount, date, note, createdAt: new Date().toISOString() }],
+          status: "pending",
+          affectBalance,
+          createdAt: new Date().toISOString()
+        });
+
+        if (affectBalance) {
+          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+          const balSnap = await getDoc(balRef);
+          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+          await setDoc(balRef, {
+            amount: cur + amount,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        $("addBorrowedModal").classList.remove("open");
+        suggestionsEl.classList.remove("show");
+        showToast(affectBalance
+          ? `Borrowed from ${friendName} added & balance updated!`
+          : `Borrowed from ${friendName} added!`);
+      }
+    } catch (err) {
+      console.error("Borrowed write error:", err);
+      showToast("Error: " + err.message, "var(--red)");
+    }
+  });
+}
+
+// ─── Record Repayment Modal ─────────────────────────────
+function initRecordRepaymentModal() {
+  $("recordRepaymentModalClose").addEventListener("click", () => $("recordRepaymentModal").classList.remove("open"));
+  $("recordRepaymentModal").addEventListener("click", e => {
+    if (e.target === $("recordRepaymentModal")) $("recordRepaymentModal").classList.remove("open");
+  });
+
+  $("recordRepaymentForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const loanIdsStr    = $("repaymentLoanId").value;
+    const loanIds       = loanIdsStr.split(",").filter(Boolean);
+    const amount        = parseFloat($("repaymentAmount").value);
+    const date          = $("repaymentDate").value;
+    const note          = $("repaymentNote").value.trim();
+    const affectBalance = $("repaymentAffectBalance").checked;
+
+    if (!amount || amount <= 0) { showToast("Enter a valid amount", "var(--red)"); return; }
+    if (!date) { showToast("Pick a date", "var(--red)"); return; }
+
+    const friendBorrowings = loanIds.map(id => allBorrowings.find(l => l.id === id)).filter(Boolean);
+    const totalRemaining = friendBorrowings.reduce((s, l) => s + l.remainingAmount, 0);
+    const friendName = friendBorrowings[0]?.friendName || "";
+
+    if (amount > totalRemaining) {
+      showToast(`Amount exceeds remaining (${fmt(totalRemaining)})`, "var(--red)");
+      return;
+    }
+
+    try {
+      let remaining = amount;
+      const sortedLoans = [...friendBorrowings]
+        .filter(l => l.remainingAmount > 0)
+        .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+      for (const loan of sortedLoans) {
+        if (remaining <= 0) break;
+        const applyAmount = Math.min(remaining, loan.remainingAmount);
+        const newRemaining = Math.max(0, loan.remainingAmount - applyAmount);
+        const newPayments  = [...(loan.payments || []), { amount: applyAmount, date, note, affectBalance }];
+        const newStatus    = newRemaining <= 0 ? "settled" : "pending";
+
+        await updateDoc(doc(db, "users", currentUser.uid, "borrowings", loan.id), {
+          remainingAmount: newRemaining,
+          payments: newPayments,
+          status: newStatus
+        });
+
+        remaining -= applyAmount;
+      }
+
+      if (affectBalance) {
+        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
+        const balSnap = await getDoc(balRef);
+        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
+        await setDoc(balRef, {
+          amount: cur - amount,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      $("recordRepaymentModal").classList.remove("open");
+      const allSettled = (amount >= totalRemaining);
+      if (allSettled) {
+        showToast(`Fully paid back ${friendName}! 🎉`);
+      } else {
+        showToast(affectBalance
+          ? `Repayment of ${fmt(amount)} recorded & balance updated!`
+          : `Repayment of ${fmt(amount)} recorded!`);
+      }
+    } catch (err) {
+      console.error("Repayment write error:", err);
       showToast("Error: " + err.message, "var(--red)");
     }
   });

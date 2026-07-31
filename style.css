@@ -1737,6 +1737,84 @@ body {
 /* ===========================
    LOANS SECTION
 =========================== */
+
+/* 4-card stats grid */
+.stats-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 900px) {
+  .stats-grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 400px) {
+  .stats-grid-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Loan tab switcher */
+.loan-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem;
+}
+
+.loan-tab-btn {
+  flex: 1;
+  padding: 0.7rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.loan-tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.loan-tab-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(124, 110, 255, 0.3);
+}
+
+.loan-tab-btn i {
+  font-size: 0.82rem;
+}
+
+/* Loan tab content */
+.loan-tab-content {
+  display: none;
+}
+
+.loan-tab-content.active {
+  display: block;
+  animation: loanTabFadeIn 0.3s ease;
+}
+
+@keyframes loanTabFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Stat icon colors */
 .stat-icon.loan-lent {
   background: rgba(251, 191, 36, 0.15);
   color: var(--yellow);
@@ -1750,6 +1828,65 @@ body {
 .stat-icon.loan-returned {
   background: rgba(74, 222, 128, 0.15);
   color: var(--green);
+}
+
+.stat-icon.loan-borrowed {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--blue);
+}
+
+.stat-icon.loan-topay {
+  background: rgba(255, 110, 180, 0.15);
+  color: var(--accent);
+}
+
+/* Borrowed card accents */
+.loan-card.borrowed-card {
+  border-left: 3px solid rgba(96, 165, 250, 0.4);
+}
+
+.loan-card.borrowed-card:hover {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.loan-card.borrowed-card .loan-avatar {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.25), rgba(124, 110, 255, 0.15));
+  color: var(--blue);
+}
+
+.loan-card.borrowed-card .loan-remaining {
+  color: var(--accent);
+}
+
+.loan-card.borrowed-card .loan-progress-fill {
+  background: linear-gradient(90deg, var(--blue), var(--green));
+}
+
+/* Borrowed modal info accent */
+.borrowed-modal-info {
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+/* Repay button style */
+.btn-loan-repay {
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--blue);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.btn-loan-repay:hover {
+  background: rgba(96, 165, 250, 0.22);
 }
 
 .loan-list {
