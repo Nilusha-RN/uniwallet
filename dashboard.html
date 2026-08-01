@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>UniWallet</title>
   <link rel="icon" type="image/png" href="logo.png.png" />
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#7c6eff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="logo.png.png" />
   <link rel="stylesheet" href="style.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
@@ -60,6 +66,16 @@
       <button class="hamburger" id="hamburger"><i class="fas fa-bars"></i></button>
       <div class="topbar-title" id="sectionTitle">Overview</div>
       <div class="topbar-right">
+        <!-- Connection Status Indicator -->
+        <div class="connection-status online" id="connectionStatus" title="Connected to server">
+          <i class="fas fa-wifi" id="connectionIcon"></i>
+          <span id="connectionText">Online</span>
+        </div>
+        <!-- Pending Sync Badge (hidden by default) -->
+        <div class="pending-sync-badge hidden" id="pendingSyncBadge" title="Changes waiting to sync">
+          <i class="fas fa-cloud-arrow-up"></i>
+          <span>Syncing…</span>
+        </div>
         <span class="today-date" id="todayDate"></span>
         <img id="topbarAvatar" src="" alt="avatar" class="topbar-avatar" />
       </div>
@@ -782,5 +798,29 @@
   <script type="module" src="app.js"></script>
   <script type="module" src="dashboard.js"></script>
   <script defer src="/_vercel/insights/script.js"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js")
+          .then((reg) => {
+            console.log("✅ Service Worker registered, scope:", reg.scope);
+            // Listen for updates
+            reg.addEventListener("updatefound", () => {
+              const newWorker = reg.installing;
+              newWorker.addEventListener("statechange", () => {
+                if (newWorker.state === "activated" && navigator.serviceWorker.controller) {
+                  // New version available — a simple reload will pick it up
+                  console.log("🔄 New Service Worker activated. Refresh for latest version.");
+                }
+              });
+            });
+          })
+          .catch((err) => console.warn("⚠️ Service Worker registration failed:", err));
+      });
+    }
+  </script>
 </body>
 </html>

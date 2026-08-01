@@ -1,0 +1,20 @@
+{
+  "name": "UniWallet — Smart Expense Tracker",
+  "short_name": "UniWallet",
+  "description": "Smart expense tracking for university students",
+  "start_url": "/dashboard.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#7c6eff",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "logo.png.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

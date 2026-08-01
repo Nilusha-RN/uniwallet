@@ -1,8 +1,8 @@
-import { db } from "./firebase-config.js";
+import { db, persistenceReady } from "./firebase-config.js";
 import {
   doc, collection,
-  setDoc, getDoc, addDoc, deleteDoc, updateDoc,
-  query, orderBy, onSnapshot
+  setDoc, addDoc, deleteDoc, updateDoc,
+  query, orderBy, onSnapshot, increment
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ─── State ──────────────────────────────────────────────
@@ -12,6 +12,19 @@ let budgets        = {};
 let allLoans        = [];
 let allBorrowings   = [];
 let weeklyChart = null, categoryChart = null, budgetChart = null;
+
+// ─── Pending-writes tracking ────────────────────────────
+// Track which listeners have pending (unsynced) writes.
+// When any listener reports hasPendingWrites, we show the sync badge.
+const _pendingSources = new Set();
+function _reportPending(source, hasPending) {
+  if (hasPending) _pendingSources.add(source);
+  else _pendingSources.delete(source);
+  const badge = document.getElementById("pendingSyncBadge");
+  if (badge) {
+    badge.classList.toggle("hidden", _pendingSources.size === 0);
+  }
+}
 
 // ─── Category config ────────────────────────────────────
 const CATEGORIES = {
@@ -36,6 +49,51 @@ function showToast(msg, color = "var(--primary)") {
   t.style.background = color;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+// ─── Connection Status ──────────────────────────────────
+function initConnectionStatus() {
+  const statusEl = $("connectionStatus");
+  const iconEl   = $("connectionIcon");
+  const textEl   = $("connectionText");
+
+  function update() {
+    const online = navigator.onLine;
+    statusEl.classList.toggle("offline", !online);
+    statusEl.classList.toggle("online", online);
+    iconEl.className = online ? "fas fa-wifi" : "fas fa-triangle-exclamation";
+    textEl.textContent = online ? "Online" : "Offline";
+    statusEl.title = online
+      ? "Connected to server"
+      : "Working offline — changes will sync when back online";
+  }
+
+  window.addEventListener("online", update);
+  window.addEventListener("offline", update);
+  update();
+}
+
+// ─── Safe balance update using increment() ──────────────
+// Atomic balance mutation: uses Firestore increment() so multiple
+// offline writes don't read stale cached values.
+async function adjustBalance(delta) {
+  const balRef = doc(db, "users", currentUser.uid, "profile", "balance");
+  try {
+    await updateDoc(balRef, {
+      amount: increment(delta),
+      updatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    if (err.code === "not-found") {
+      // First-time user: balance doc doesn't exist yet
+      await setDoc(balRef, {
+        amount: delta,
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      throw err;
+    }
+  }
 }
 
 // ─── Navigation ─────────────────────────────────────────
@@ -98,6 +156,7 @@ function initFormTabs() {
 function listenBalance() {
   const ref = doc(db, "users", currentUser.uid, "profile", "balance");
   onSnapshot(ref, snap => {
+    _reportPending("balance", snap.metadata.hasPendingWrites);
     const bal = snap.exists() ? snap.data().amount : 0;
     $("balanceDisplay").textContent = fmt(bal);
     $("balanceSub").textContent = snap.exists()
@@ -152,14 +211,8 @@ function initAddForm() {
         type, amount, category, note, date, createdAt: new Date().toISOString()
       });
 
-      // Adjust balance
-      const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-      const balSnap = await getDoc(balRef);
-      const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-      await setDoc(balRef, {
-        amount: type === "expense" ? cur - amount : cur + amount,
-        updatedAt: new Date().toISOString()
-      });
+      // Adjust balance atomically (safe for offline queuing)
+      await adjustBalance(type === "expense" ? -amount : amount);
 
       $("addTransactionForm").reset();
       $("txDate").value = todayStr();
@@ -182,6 +235,7 @@ function listenTransactions() {
     orderBy("date", "desc")
   );
   onSnapshot(ref, snap => {
+    _reportPending("transactions", snap.metadata.hasPendingWrites);
     allTransactions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderOverview();
     // Also refresh whichever section is currently visible
@@ -303,14 +357,8 @@ function attachDeleteHandlers(container) {
 
       await deleteDoc(doc(db, "users", currentUser.uid, "transactions", id));
 
-      // Reverse the balance effect
-      const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-      const balSnap = await getDoc(balRef);
-      const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-      await setDoc(balRef, {
-        amount: type === "expense" ? cur + amount : cur - amount,
-        updatedAt: new Date().toISOString()
-      });
+      // Reverse the balance effect atomically
+      await adjustBalance(type === "expense" ? amount : -amount);
 
       showToast("Transaction deleted", "var(--red)");
     });
@@ -540,6 +588,7 @@ function chartOptions(yLabel) {
 function listenBudgets() {
   const ref = doc(db, "users", currentUser.uid, "profile", "budgets");
   onSnapshot(ref, snap => {
+    _reportPending("budgets", snap.metadata.hasPendingWrites);
     budgets = snap.exists() ? snap.data() : {};
     if ($("section-budget").classList.contains("active")) renderBudget();
   });
@@ -659,6 +708,7 @@ function initFeedbackForm(user) {
 // ─── Bootstrap ──────────────────────────────────────────
 window.addEventListener("userReady", ({ detail: { user } }) => {
   currentUser = user;
+  initConnectionStatus();
   initNav();
   initFormTabs();
   initBalanceModal();
@@ -732,6 +782,7 @@ function listenLoans() {
     orderBy("createdAt", "desc")
   );
   onSnapshot(ref, snap => {
+    _reportPending("loans", snap.metadata.hasPendingWrites);
     allLoans = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if ($("section-loans").classList.contains("active")) renderLoans();
   });
@@ -1140,13 +1191,7 @@ function initAddLoanModal() {
 
         // Deduct from balance if toggle is on
         if (affectBalance) {
-          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-          const balSnap = await getDoc(balRef);
-          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-          await setDoc(balRef, {
-            amount: cur - amount,
-            updatedAt: new Date().toISOString()
-          });
+          await adjustBalance(-amount);
         }
 
         $("addLoanModal").classList.remove("open");
@@ -1172,13 +1217,7 @@ function initAddLoanModal() {
 
         // Deduct from main balance if toggle is on
         if (affectBalance) {
-          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-          const balSnap = await getDoc(balRef);
-          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-          await setDoc(balRef, {
-            amount: cur - amount,
-            updatedAt: new Date().toISOString()
-          });
+          await adjustBalance(-amount);
         }
 
         $("addLoanModal").classList.remove("open");
@@ -1248,13 +1287,7 @@ function initRecordPaymentModal() {
 
       // Add to main balance if toggle is on
       if (affectBalance) {
-        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-        const balSnap = await getDoc(balRef);
-        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-        await setDoc(balRef, {
-          amount: cur + amount,
-          updatedAt: new Date().toISOString()
-        });
+        await adjustBalance(amount);
       }
 
       $("recordPaymentModal").classList.remove("open");
@@ -1300,6 +1333,7 @@ function listenBorrowings() {
     orderBy("createdAt", "desc")
   );
   onSnapshot(ref, snap => {
+    _reportPending("borrowings", snap.metadata.hasPendingWrites);
     allBorrowings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if ($("section-loans").classList.contains("active")) {
       renderBorrowedLoans();
@@ -1677,13 +1711,7 @@ function initAddBorrowedModal() {
         });
 
         if (affectBalance) {
-          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-          const balSnap = await getDoc(balRef);
-          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-          await setDoc(balRef, {
-            amount: cur + amount,
-            updatedAt: new Date().toISOString()
-          });
+          await adjustBalance(amount);
         }
 
         $("addBorrowedModal").classList.remove("open");
@@ -1707,13 +1735,7 @@ function initAddBorrowedModal() {
         });
 
         if (affectBalance) {
-          const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-          const balSnap = await getDoc(balRef);
-          const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-          await setDoc(balRef, {
-            amount: cur + amount,
-            updatedAt: new Date().toISOString()
-          });
+          await adjustBalance(amount);
         }
 
         $("addBorrowedModal").classList.remove("open");
@@ -1780,13 +1802,7 @@ function initRecordRepaymentModal() {
       }
 
       if (affectBalance) {
-        const balRef  = doc(db, "users", currentUser.uid, "profile", "balance");
-        const balSnap = await getDoc(balRef);
-        const cur     = balSnap.exists() ? balSnap.data().amount : 0;
-        await setDoc(balRef, {
-          amount: cur - amount,
-          updatedAt: new Date().toISOString()
-        });
+        await adjustBalance(-amount);
       }
 
       $("recordRepaymentModal").classList.remove("open");
